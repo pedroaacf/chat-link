@@ -1,0 +1,129 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>ChatLink - Test</title>
+
+    <!-- SockJS + STOMP (CDNs) -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #messages { border: 1px solid #ddd; padding: 10px; height: 300px; overflow:auto; background:#fafafa }
+        #status { color: green; margin-bottom:6px }
+        .msg { padding:4px 0; border-bottom: 1px solid #eee; }
+        .meta { color: #666; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+<h3>ChatLink — Test UI</h3>
+<div id="status">Não conectado</div>
+
+Token: <span id="token"></span><br/>
+Nome: <input id="name" placeholder="Seu nome" />
+<button id="connectBtn">Connect</button>
+<button id="disconnectBtn" disabled>Disconnect</button>
+<button id="clearBtn">Limpar</button>
+<br/><br/>
+
+<div id="messages"></div>
+<br/>
+<input id="msg" placeholder="Digite sua mensagem..." style="width:70%"/>
+<button id="sendBtn">Enviar</button>
+
+<script>
+    // pega token da querystring ?token=...
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token') || prompt("Informe o token:");
+    document.getElementById('token').textContent = token;
+
+    let stompClient = null;
+
+    function append(text, meta = '') {
+        const el = document.getElementById('messages');
+        const div = document.createElement('div');
+        div.className = 'msg';
+        div.innerHTML = text + (meta ? `<div class="meta">${meta}</div>` : '');
+        el.appendChild(div);
+        el.scrollTop = el.scrollHeight;
+    }
+
+    // Connect
+    document.getElementById('connectBtn').addEventListener('click', () => {
+        if (stompClient) {
+            alert('Já conectado');
+            return;
+        }
+        const sock = new SockJS('/ws');
+        stompClient = Stomp.over(sock);
+
+        // desativar logs intrusivos do Stomp (opcional)
+        stompClient.debug = function() {};
+
+        stompClient.connect({}, function(frame) {
+            document.getElementById('status').textContent = 'Conectado';
+            document.getElementById('connectBtn').disabled = true;
+            document.getElementById('disconnectBtn').disabled = false;
+            append('Conectado: ' + frame);
+            // subscribe no tópico da conversa
+            stompClient.subscribe('/topic/conversation.' + token, function(message) {
+                try {
+                    const body = JSON.parse(message.body);
+                    const time = body.createdAt ? new Date(body.createdAt).toLocaleTimeString() : '';
+                    append(`<strong>${body.senderName}</strong>: ${body.content}`, time);
+                } catch(e) {
+                    console.error('Erro parsing message', e, message);
+                    append('Mensagem recebida (formato inesperado): ' + message.body);
+                }
+            });
+
+            stompClient.subscribe('/topic/conversation.' + token + '.error', function(message) {
+                const body = JSON.parse(message.body);
+                append(`<span style="color:red">ERRO: ${body.message}</span>`);
+            });
+
+        }, function(error) {
+            document.getElementById('status').textContent = 'Erro ao conectar';
+            append('Erro na conexão: ' + error);
+            console.error('STOMP error', error);
+        });
+    });
+
+    // Disconnect
+    document.getElementById('disconnectBtn').addEventListener('click', () => {
+        if (stompClient) {
+            stompClient.disconnect(() => {
+                document.getElementById('status').textContent = 'Desconectado';
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                append('Desconectado');
+                stompClient = null;
+            });
+        }
+    });
+
+    // Clear messages
+    document.getElementById('clearBtn').addEventListener('click', () => {
+        document.getElementById('messages').innerHTML = '';
+    });
+
+    // Send
+    document.getElementById('sendBtn').addEventListener('click', () => {
+        const name = document.getElementById('name').value || 'Anon';
+        const content = document.getElementById('msg').value;
+        if (!content) { alert('Digite a mensagem'); return; }
+        if (!stompClient) { alert('Conecte primeiro'); return; }
+
+        // envia para o destino /app/conversation/{token}/message
+        stompClient.send('/app/conversation/' + token + '/message', {}, JSON.stringify({ senderName: name, content: content }));
+        document.getElementById('msg').value = '';
+    });
+
+    // allow enter to send
+    document.getElementById('msg').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('sendBtn').click();
+    });
+</script>
+</body>
+</html>

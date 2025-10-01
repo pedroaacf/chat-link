@@ -1,0 +1,22 @@
+@'
+# Maven / Java
+target/
+*.log
+*.tmp
+*.bak
+
+# IDE
+/.idea/
+*.iml
+/.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# local env
+.env
+'@ | Set-Content -Path .gitignore -Encoding UTF8
